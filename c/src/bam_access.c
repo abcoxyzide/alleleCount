@@ -41,6 +41,8 @@ int min_map_qual = 35;
 int inc_flag = 3;
 int exc_flag = 3852;
 int maxitercnt = 1000000000; //Overrride internal maxcnt for iterator!
+int strand = 0;
+int OT = 1;
 //Make sure this isn't too close to the integer overflow boundary
 //int maxitercnt = 100000;
 
@@ -342,6 +344,14 @@ int bam_access_get_multi_position_base_counts(loci_stats **stats, int stats_coun
        uint8_t *aux_val_umi;
        //printf("Got another read \n");
 	    if(b->core.qual < min_map_qual || (b->core.flag & exc_flag) || (b->core.flag & inc_flag) != inc_flag) continue;
+	    // strand-mode; filter for F1R2 or F2R1 only
+	    if(strand){
+	      if(OT){
+	        if(!((b->core.flag & 99) == 99 || (b->core.flag & 147) == 147)) continue;
+	      } else {
+	        if(!((b->core.flag & 83) == 83 || (b->core.flag & 163) == 163)) continue;
+	      }
+	    }
         //Additional check for properly paired reads - they must be in correct paired end orientation
         if(inc_flag & BAM_FPROPER_PAIR){
           if ((!(b->core.flag & BAM_FMREVERSE) == !(b->core.flag & BAM_FREVERSE))) continue;
@@ -446,6 +456,14 @@ int bam_access_get_position_base_counts(char *chr, int posn, loci_stats *stats,i
       }
     }
     if(b->core.qual < min_map_qual || (b->core.flag & exc_flag) || (b->core.flag & inc_flag) != inc_flag) continue;
+    // strand-mode; filter for F1R2 or F2R1 only
+	if(strand){
+	  if(OT){
+	    if(!((b->core.flag & 99) == 99 || (b->core.flag & 147) == 147)) continue;
+	  } else {
+	    if(!((b->core.flag & 83) == 83 || (b->core.flag & 163) == 163)) continue;
+	  }
+	}
     bam_plp_push(buf, b);
     //barcode = bam_aux2Z(aux_val_bcode);
     //umi = bam_aux2Z(aux_val_umi);
@@ -499,5 +517,11 @@ void bam_access_inc_flag(int inc){
 
 void bam_access_exc_flag(int exc){
   exc_flag = exc;
+  return;
+}
+
+void bam_access_OT_strand(int yes){
+  strand = 1;
+  OT = yes;
   return;
 }

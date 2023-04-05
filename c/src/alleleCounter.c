@@ -39,6 +39,8 @@ static int exc_flag = 3852; // Read unmapped, Mate unmapped, Secondary alignment
 static int snp6 = 0;
 static int is_10x = 0;
 static int is_dense = 0;
+static int strand = 0;
+static int OT = 1;
 
 int check_exist(char *fname){
 	FILE *fp;
@@ -73,6 +75,7 @@ void alleleCounter_print_usage (int exit_code){
   printf ("                                 N.B. if the proper-pair flag is are selected, alleleCounter will assume paired-end\n");
   printf ("                                 and filter out any proper-pair flagged reads not in F/R orientation.");
 	printf (" -F  --filtered-flag [int]       Flag value of reads to exclude in allele counting default: [%i].\n",exc_flag);
+	printf (" -S  --strand-mode [int]       Limit counting to forward (1) or reverse (0) strand only. May be useful for strand-bias\n");
 	printf (" -v  --version                   Display version number.\n");
 	printf (" -h  --help                      Display this usage information.\n\n");
   exit(exit_code);
@@ -99,6 +102,7 @@ void alleleCounter_setup_options(int argc, char *argv[]){
 							{"dense-snps", no_argument, 0, 'd'},
 							{"required-flag", required_argument, 0, 'f'},
 							{"filtered-flag", required_argument, 0, 'F'},
+							{"strand-mode", required_argument, 0, 'S'},
 							{"version", no_argument, 0, 'v'},
              	{"help", no_argument, 0, 'h'},
              	{ NULL, 0, NULL, 0}
@@ -108,7 +112,7 @@ void alleleCounter_setup_options(int argc, char *argv[]){
    int iarg = 0;
 
    //Iterate through options
-   while((iarg = getopt_long(argc, argv, "f:F:l:b:m:o:q:r:c:hdsvx", long_opts, &index)) != -1){
+   while((iarg = getopt_long(argc, argv, "f:F:l:b:m:o:q:r:c:S:hdsvx", long_opts, &index)) != -1){
    	switch(iarg){
    		  case 'h':
          	alleleCounter_print_usage(0);
@@ -164,6 +168,11 @@ void alleleCounter_setup_options(int argc, char *argv[]){
 
         case 'F':
           exc_flag = atoi(optarg);
+          break;
+
+        case 'S':
+          strand = 1;
+          OT = atoi(optarg);
           break;
 
 				case '?':
@@ -392,6 +401,8 @@ int main(int argc, char *argv[]){
 	bam_access_inc_flag(inc_flag);
 
 	bam_access_exc_flag(exc_flag);
+
+	if(strand) bam_access_OT_strand(OT);
 
 	//Open output file for writing
 	FILE *output = fopen(out_file,"w");
