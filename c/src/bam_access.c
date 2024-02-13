@@ -41,8 +41,6 @@ int min_map_qual = 35;
 int inc_flag = 3;
 int exc_flag = 3852;
 int maxitercnt = 1000000000; //Overrride internal maxcnt for iterator!
-int strand = 0;
-int OT = 1;
 //Make sure this isn't too close to the integer overflow boundary
 //int maxitercnt = 100000;
 
@@ -112,7 +110,7 @@ static int pileup_func(void *data, bam1_t *b){
   return 0;
 }
 
-void pileupCounts(const bam_pileup1_t *pil, int n_plp, loci_stats *stats){
+void pileupCounts(const bam_pileup1_t *pil, int n_plp, loci_stats *stats, int stranded){
 	khash_t(strh) *h;
 	khiter_t k;
 	h = kh_init(strh);
@@ -131,32 +129,89 @@ void pileupCounts(const bam_pileup1_t *pil, int n_plp, loci_stats *stats){
 			//Add the value to the hash
 			kh_value(h, k) = c;
 		}
-		if(!(p->is_del) &&  qual >= min_base_qual && (absent || pre_b != c)){
-			//&& (c == 1 /*A*/|| c == 2 /*C*/|| c == 4 /*G*/|| c == 8 /*T*/)){
-			//Now we add a new read pos struct to the list since the read is valid.
-			//char cbase = toupper(bam_nt16_rev_table[c]);
-			switch(c){
-				case 1:
-				stats->base_counts[0]++;
-				break;
+    if(stranded){
+      //   OT strand: ((p->b->core.flag & 99) == 99 || (p->b->core.flag & 147) == 147)
+      //   OB strand: ((p->b->core.flag & 83) == 83 || (p->b->core.flag & 163) == 163)
+      if(!(p->is_del) && qual >= min_base_qual && (absent || pre_b != c)){
+        //&& (c == 1 /*A*/|| c == 2 /*C*/|| c == 4 /*G*/|| c == 8 /*T*/)){
+        //Now we add a new read pos struct to the list since the read is valid.
+        //char cbase = toupper(bam_nt16_rev_table[c]);
+        // OT strand
+        if((p->b->core.flag & 99) == 99 || (p->b->core.flag & 147) == 147){
+          switch(c){
+            case 1:
+            stats->base_counts[0]++;
+            break;
 
-				case 2:
-				stats->base_counts[1]++;
-				break;
+            case 2:
+            stats->base_counts[1]++;
+            break;
 
-				case 4:
-				stats->base_counts[2]++;
-				break;
+            case 4:
+            stats->base_counts[2]++;
+            break;
 
-				case 8:
-				stats->base_counts[3]++;
-				break;
+            case 8:
+            stats->base_counts[3]++;
+            break;
 
-				default:
-				break;
+            default:
+            break;
 
-			}; // End of args switch statement */
-		}
+          }; // End of args switch statement */
+        // OB strand
+        }else if((p->b->core.flag & 83) == 83 || (p->b->core.flag & 163) == 163){
+          switch(c){
+            case 1:
+            stats->base_counts[4]++;
+            break;
+
+            case 2:
+            stats->base_counts[5]++;
+            break;
+
+            case 4:
+            stats->base_counts[6]++;
+            break;
+
+            case 8:
+            stats->base_counts[7]++;
+            break;
+
+            default:
+            break;
+
+          }; // End of args switch statement */
+        }
+      }
+    }else{
+      if(!(p->is_del) &&  qual >= min_base_qual && (absent || pre_b != c)){
+        //&& (c == 1 /*A*/|| c == 2 /*C*/|| c == 4 /*G*/|| c == 8 /*T*/)){
+        //Now we add a new read pos struct to the list since the read is valid.
+        //char cbase = toupper(bam_nt16_rev_table[c]);
+        switch(c){
+          case 1:
+          stats->base_counts[0]++;
+          break;
+
+          case 2:
+          stats->base_counts[1]++;
+          break;
+
+          case 4:
+          stats->base_counts[2]++;
+          break;
+
+          case 8:
+          stats->base_counts[3]++;
+          break;
+
+          default:
+          break;
+
+        }; // End of args switch statement */
+      }
+    }
 	}
 	kh_destroy(strh, h);
 	return;
@@ -299,7 +354,7 @@ void pileupCounts10x(const bam_pileup1_t *pil, int n_plp, loci_stats *stats,FILE
   return;
 }
 
-int bam_access_get_multi_position_base_counts(loci_stats **stats, int stats_count,int is_10x,FILE* output){
+int bam_access_get_multi_position_base_counts(loci_stats **stats, int stats_count,int is_10x,int stranded,FILE* output){
 	char *region = NULL;
 	hts_itr_t *iter = NULL;
 	bam1_t* b = NULL;
@@ -344,14 +399,14 @@ int bam_access_get_multi_position_base_counts(loci_stats **stats, int stats_coun
        uint8_t *aux_val_umi;
        //printf("Got another read \n");
 	    if(b->core.qual < min_map_qual || (b->core.flag & exc_flag) || (b->core.flag & inc_flag) != inc_flag) continue;
-	    // strand-mode; filter for F1R2 or F2R1 only
-	    if(strand){
-	      if(OT){
-	        if(!((b->core.flag & 99) == 99 || (b->core.flag & 147) == 147)) continue;
-	      } else {
-	        if(!((b->core.flag & 83) == 83 || (b->core.flag & 163) == 163)) continue;
-	      }
-	    }
+	    // strand-mode; filter for F1R2 or F2R1 only; to be replaced
+	    // if(strand){
+	    //   if(OT){
+	    //     if(!((b->core.flag & 99) == 99 || (b->core.flag & 147) == 147)) continue;
+	    //   } else {
+	    //     if(!((b->core.flag & 83) == 83 || (b->core.flag & 163) == 163)) continue;
+	    //   }
+	    // }
         //Additional check for properly paired reads - they must be in correct paired end orientation
         if(inc_flag & BAM_FPROPER_PAIR){
           if ((!(b->core.flag & BAM_FMREVERSE) == !(b->core.flag & BAM_FREVERSE))) continue;
@@ -378,7 +433,7 @@ int bam_access_get_multi_position_base_counts(loci_stats **stats, int stats_coun
               if(is_10x){
 					 pileupCounts10x(pl, n_plp, stats[j],output);
               }else{
-					 pileupCounts(pl, n_plp, stats[j]);
+					 pileupCounts(pl, n_plp, stats[j], stranded);
               }
 				}
             //printf("Processing EOL pileup at %d stats at %d\n",pos,stats[j]->pos);
@@ -399,7 +454,7 @@ int bam_access_get_multi_position_base_counts(loci_stats **stats, int stats_coun
             if(is_10x){
 					 pileupCounts10x(pl, n_plp, stats[j],output);
               }else{
-					 pileupCounts(pl, n_plp, stats[j]);
+					 pileupCounts(pl, n_plp, stats[j], stranded);
               }
 			}
 			if(pos+1>=stats[j]->pos && j==stop_idx) break;
@@ -419,7 +474,7 @@ int bam_access_get_multi_position_base_counts(loci_stats **stats, int stats_coun
 
 }
 
-int bam_access_get_position_base_counts(char *chr, int posn, loci_stats *stats,int is_10x,FILE *output){
+int bam_access_get_position_base_counts(char *chr, int posn, loci_stats *stats,int is_10x,int stranded,FILE *output){
 	char *region = NULL;
 	hts_itr_t *iter = NULL;
 	bam1_t* b = NULL;
@@ -457,13 +512,13 @@ int bam_access_get_position_base_counts(char *chr, int posn, loci_stats *stats,i
     }
     if(b->core.qual < min_map_qual || (b->core.flag & exc_flag) || (b->core.flag & inc_flag) != inc_flag) continue;
     // strand-mode; filter for F1R2 or F2R1 only
-	if(strand){
-	  if(OT){
-	    if(!((b->core.flag & 99) == 99 || (b->core.flag & 147) == 147)) continue;
-	  } else {
-	    if(!((b->core.flag & 83) == 83 || (b->core.flag & 163) == 163)) continue;
-	  }
-	}
+	// if(strand){
+	//   if(OT){
+	//     if(!((b->core.flag & 99) == 99 || (b->core.flag & 147) == 147)) continue;
+	//   } else {
+	//     if(!((b->core.flag & 83) == 83 || (b->core.flag & 163) == 163)) continue;
+	//   }
+	// }
     bam_plp_push(buf, b);
     //barcode = bam_aux2Z(aux_val_bcode);
     //umi = bam_aux2Z(aux_val_umi);
@@ -479,7 +534,7 @@ int bam_access_get_position_base_counts(char *chr, int posn, loci_stats *stats,i
       if(is_10x){
 		  pileupCounts10x(pil, n_plp, fholder->stats,output);
       }else{
-		  pileupCounts(pil, n_plp, fholder->stats);
+		  pileupCounts(pil, n_plp, fholder->stats, stranded);
       }
   } //End of iteration through pileup
 	//bam_plp_push(buf, 0); // finalize pileup
@@ -520,8 +575,8 @@ void bam_access_exc_flag(int exc){
   return;
 }
 
-void bam_access_OT_strand(int yes){
-  strand = 1;
-  OT = yes;
-  return;
-}
+// void bam_access_OT_strand(int yes){
+//   strand = 1;
+//   OT = yes;
+//   return;
+// }

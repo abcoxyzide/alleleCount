@@ -51,13 +51,13 @@ void bam_access_inc_flag(int inc);
 
 void bam_access_exc_flag(int exc);
 
-void bam_access_OT_strand(int yes);
+// void bam_access_OT_strand(int yes);
 
 int bam_access_openhts(char *hts_file, char *ref_file);
 
-int bam_access_get_position_base_counts(char *chr, int pos, loci_stats *stats,int is_10x,FILE *output);
+int bam_access_get_position_base_counts(char *chr, int pos, loci_stats *stats,int is_10x,int stranded,FILE *output);
 
-int bam_access_get_multi_position_base_counts(loci_stats **stats, int stats_count,int is_10x,FILE *output);
+int bam_access_get_multi_position_base_counts(loci_stats **stats, int stats_count,int is_10x,int stranded,FILE *output);
 
 void bam_access_closehts();
 

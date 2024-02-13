@@ -39,8 +39,7 @@ static int exc_flag = 3852; // Read unmapped, Mate unmapped, Secondary alignment
 static int snp6 = 0;
 static int is_10x = 0;
 static int is_dense = 0;
-static int strand = 0;
-static int OT = 1;
+static int stranded = 0;
 
 int check_exist(char *fname){
 	FILE *fp;
@@ -54,28 +53,28 @@ int check_exist(char *fname){
 void alleleCounter_print_usage (int exit_code){
 
 	printf ("Usage: alleleCounter -l loci_file.txt -b sample.bam -o output.txt [-m int] [-r ref.fa.fai]\n\n");
-  printf (" -l  --loci-file [file]           Path to loci file.\n");
-  printf (" -b  --hts-file [file]            Path to sample HTS file.\n");
-  printf (" -o  --output-file [file]         Path write output file.\n\n");
+	printf (" -l  --loci-file [file]          Path to loci file.\n");
+	printf (" -b  --hts-file [file]           Path to sample HTS file.\n");
+	printf (" -o  --output-file [file]        Path write output file.\n\n");
 
 	printf ("Optional\n");
 	printf (" -r  --ref-file [file]           Path to reference fasta index file.\n");
 	printf ("                                 NB. If cram format is supplied via -b and the reference listed in the cram header\n");
-	printf ("                                     can't be found alleleCounter may fail to work correctly.\n");
+	printf ("                                 can't be found alleleCounter may fail to work correctly.\n");
 	printf (" -m  --min-base-qual [int]       Minimum base quality [Default: %d].\n",min_base_q);
 	printf (" -q  --min-map-qual [int]        Minimum mapping quality [Default: %d].\n",min_map_q);
 	printf (" -c  --contig [string]           Limit calling to named contig.\n");
 	printf (" -d  --dense-snps                Improves performance where many positions are close together \n");
 	printf (" -x  --is-10x                    Enables 10X processing mode.\n");
-	printf ("                                   In this mode the HTS input file must be a cellranger produced BAM file.  Allele\n");
-	printf ("                                   counts are then given on a per-cellular barcode basis, with each count representing\n");
-	printf ("                                   the consensus base for that UMI. \n");
+	printf ("                                 In this mode the HTS input file must be a cellranger produced BAM file.  Allele\n");
+	printf ("                                 counts are then given on a per-cellular barcode basis, with each count representing\n");
+	printf ("                                 the consensus base for that UMI. \n");
 	printf ("                                 by iterating through bam file rather than using a 'fetch' approach.\n");
 	printf (" -f  --required-flag [int]       Flag value of reads to retain in allele counting default: [%i].\n",inc_flag);
-  printf ("                                 N.B. if the proper-pair flag is are selected, alleleCounter will assume paired-end\n");
-  printf ("                                 and filter out any proper-pair flagged reads not in F/R orientation.");
+	printf ("                                 N.B. if the proper-pair flag is are selected, alleleCounter will assume paired-end\n");
+	printf ("                                 and filter out any proper-pair flagged reads not in F/R orientation.");
 	printf (" -F  --filtered-flag [int]       Flag value of reads to exclude in allele counting default: [%i].\n",exc_flag);
-	printf (" -S  --strand-mode [int]       Limit counting to forward (1) or reverse (0) strand only. May be useful for strand-bias\n");
+	printf (" -S  --strand-mode               Only implemented for the normal working mode. Counts separated by OT/OB strands.\n");
 	printf (" -v  --version                   Display version number.\n");
 	printf (" -h  --help                      Display this usage information.\n\n");
   exit(exit_code);
@@ -95,15 +94,15 @@ void alleleCounter_setup_options(int argc, char *argv[]){
              	{"ref-file", required_argument, 0, 'r'},
              	{"output-file",required_argument , 0, 'o'},
              	{"min-base-qual", required_argument, 0, 'm'},
-							{"min-map-qual", required_argument, 0, 'q'},
-							{"is-snp6", required_argument, 0, 's'},
-							{"is-10x", required_argument, 0, 'x'},
-							{"contig", required_argument, 0, 'c'},
-							{"dense-snps", no_argument, 0, 'd'},
-							{"required-flag", required_argument, 0, 'f'},
-							{"filtered-flag", required_argument, 0, 'F'},
-							{"strand-mode", required_argument, 0, 'S'},
-							{"version", no_argument, 0, 'v'},
+				{"min-map-qual", required_argument, 0, 'q'},
+				{"is-snp6", required_argument, 0, 's'},
+				{"is-10x", required_argument, 0, 'x'},
+				{"contig", required_argument, 0, 'c'},
+				{"dense-snps", no_argument, 0, 'd'},
+				{"required-flag", required_argument, 0, 'f'},
+				{"filtered-flag", required_argument, 0, 'F'},
+				{"strand-mode", no_argument, 0, 'S'},
+				{"version", no_argument, 0, 'v'},
              	{"help", no_argument, 0, 'h'},
              	{ NULL, 0, NULL, 0}
    }; //End of declaring opts
@@ -112,7 +111,7 @@ void alleleCounter_setup_options(int argc, char *argv[]){
    int iarg = 0;
 
    //Iterate through options
-   while((iarg = getopt_long(argc, argv, "f:F:l:b:m:o:q:r:c:S:hdsvx", long_opts, &index)) != -1){
+   while((iarg = getopt_long(argc, argv, "f:F:l:b:m:o:q:r:c:hSdsvx", long_opts, &index)) != -1){
    	switch(iarg){
    		  case 'h':
          	alleleCounter_print_usage(0);
@@ -171,11 +170,10 @@ void alleleCounter_setup_options(int argc, char *argv[]){
           break;
 
         case 'S':
-          strand = 1;
-          OT = atoi(optarg);
+          stranded = 1;
           break;
 
-				case '?':
+		case '?':
           alleleCounter_print_usage (1);
           break;
 
@@ -203,28 +201,32 @@ void alleleCounter_setup_options(int argc, char *argv[]){
    return;
 }
 
-int print_loci_head(FILE *output){
-	int chk = fprintf(output,"#CHR\tPOS\tCount_A\tCount_C\tCount_G\tCount_T\tGood_depth\n");
+int print_loci_head(FILE *output, int stranded){
+	int chk;
+	if(stranded) chk = fprintf(output,"#CHR\tPOS\tStrand\tCount_A\tCount_C\tCount_G\tCount_T\tGood_depth\n");
+	else chk = fprintf(output,"#CHR\tPOS\tCount_A\tCount_C\tCount_G\tCount_T\tGood_depth\n");
 	return chk;
 }
 
-int print_snp6_header(FILE *output){
-	int chk = fprintf(output,"#CHR\tPOS\tCount_Allele_A\tCount_Allele_B\tGood_depth\n");
+int print_snp6_header(FILE *output, int stranded){
+	int chk;
+	if(stranded) chk = fprintf(output,"#CHR\tPOS\tStrand\tCount_Allele_A\tCount_Allele_B\tGood_depth\n");
+	else chk = fprintf(output,"#CHR\tPOS\tCount_Allele_A\tCount_Allele_B\tGood_depth\n");
 	return chk;
 }
 
 int print_10x_header(FILE *output){
 	int chk = fprintf(output,"#CHR\tPOS\tBarcode\tCount_A\tCount_C\tCount_G\tCount_T\tGood_depth\n");
-   return chk;
+	return chk;
 }
 
-int print_header(FILE *output, int snp6){
+int print_header(FILE *output, int snp6, int stranded){
 	if(snp6 == 1){
-		return print_snp6_header(output);
+		return print_snp6_header(output, stranded);
 	}else if(is_10x == 1){
-     return print_10x_header(output);
-   }else{
-		return print_loci_head(output);
+		return print_10x_header(output);
+	}else{
+		return print_loci_head(output, stranded);
 	}
 }
 
@@ -251,22 +253,32 @@ int print_loci_section(FILE *output, char *chr, int pos, int a_cnt, int c_cnt, i
 	assert(output !=NULL);
 	return (fprintf(output,"%s\t%d\t%d\t%d\t%d\t%d\t%d\n",chr,pos,a_cnt,c_cnt,g_cnt,t_cnt,depth));
 }
+int print_loci_section_stranded(FILE *output, char *chr, int pos, char *strand, int a_cnt, int c_cnt, int g_cnt, int t_cnt, int depth){
+	assert(output !=NULL);
+	return (fprintf(output,"%s\t%d\t%s\t%d\t%d\t%d\t%d\t%d\n",chr,pos,strand,a_cnt,c_cnt,g_cnt,t_cnt,depth));
+}
 
 int print_snp6_section(FILE *output, char *chr, int pos, int allele_a, int allele_b, int depth){
 	assert(output !=NULL);
 	return (fprintf(output,"%s\t%d\t%d\t%d\t%d\n",chr,pos,allele_a,allele_b,depth));
 }
+int print_snp6_section_stranded(FILE *output, char *chr, int pos, char *strand, int allele_a, int allele_b, int depth){
+	assert(output !=NULL);
+	return (fprintf(output,"%s\t%d\t%s\t%d\t%d\t%d\n",chr,pos,strand,allele_a,allele_b,depth));
+}
 
-int print_section(FILE *output, char *chr, int pos, int a_cnt, int c_cnt, int g_cnt,
-															int t_cnt, int depth, int snp6, char allele_A, char allele_B){
+int print_section(FILE *output, char *chr, int pos, char *strand, int a_cnt, int c_cnt, int g_cnt,
+															int t_cnt, int depth, int snp6, char allele_A, char allele_B, int stranded){
 	if(snp6 == 1){
 		int all_a_cnt = calculateAlleleCount(a_cnt, c_cnt, g_cnt, t_cnt, allele_A);
 		check(all_a_cnt>=0,"Error getting A Allele count '%c'",allele_A);
 		int all_b_cnt = calculateAlleleCount(a_cnt, c_cnt, g_cnt, t_cnt, allele_B);
 		check(all_b_cnt>=0,"Error getting B Allele count '%c'",allele_B);
-		return print_snp6_section(output, chr, pos, all_a_cnt, all_b_cnt, depth);
+		if(stranded) return print_snp6_section_stranded(output, chr, pos, strand, all_a_cnt, all_b_cnt, depth);
+		else return print_snp6_section(output, chr, pos, all_a_cnt, all_b_cnt, depth);
 	}else{
-		return print_loci_section(output, chr, pos, a_cnt, c_cnt, g_cnt,t_cnt, depth);
+		if(stranded) return print_loci_section_stranded(output, chr, pos, strand, a_cnt, c_cnt, g_cnt,t_cnt, depth);
+		else return print_loci_section(output, chr, pos, a_cnt, c_cnt, g_cnt,t_cnt, depth);
 	}
 	error:
 		return -1;
@@ -333,19 +345,34 @@ int sort_loci_stats(const void *a1, const void *b1){
 	}
 }
 
-int init_base_counts(loci_stats *stats){
-	stats->base_counts = malloc(sizeof(int) * 4);
-	check_mem(stats->base_counts);
-	stats->base_counts[0] = 0;
-	stats->base_counts[1] = 0;
-	stats->base_counts[2] = 0;
-	stats->base_counts[3] = 0;
+int init_base_counts(loci_stats *stats, int stranded){
+	// not sure why it doesn't like it when i malloc according to stranded or not
+	// if(stranded != 0) {
+	// 	stats->base_counts = malloc(sizeof(int) * 4);
+	// 	check_mem(stats->base_counts);
+	// 	stats->base_counts[0] = 0;
+	// 	stats->base_counts[1] = 0;
+	// 	stats->base_counts[2] = 0;
+	// 	stats->base_counts[3] = 0;
+	// } else {
+		stats->base_counts = malloc(sizeof(int) * 8);
+		check_mem(stats->base_counts);
+		stats->base_counts[0] = 0;
+		stats->base_counts[1] = 0;
+		stats->base_counts[2] = 0;
+		stats->base_counts[3] = 0;
+		stats->base_counts[4] = 0;
+		stats->base_counts[5] = 0;
+		stats->base_counts[6] = 0;
+		stats->base_counts[7] = 0;
+	// }
 	return 0;
 	error:
 	return 1;
 }
 
-loci_stats ** read_locis_from_file(char *loci_file, int *line_cnt){
+
+loci_stats ** read_locis_from_file(char *loci_file, int *line_cnt, int stranded){
 	FILE *loci_in = NULL;
 	loci_stats **stats= NULL;
 	*line_cnt = line_count(loci_file);
@@ -366,7 +393,7 @@ loci_stats ** read_locis_from_file(char *loci_file, int *line_cnt){
 		stats[i]->base_counts = NULL;
 		int check = get_position_info_from_file(line,stats[i],snp6,i);
 		check(check==0,"Error trying to fetch position from file at line %d.",i);
-		check = init_base_counts(stats[i]);
+		check = init_base_counts(stats[i], stranded);
 		check(check==0,"Error initialising base counts %d.",i);
 		i++;
 	}
@@ -402,12 +429,12 @@ int main(int argc, char *argv[]){
 
 	bam_access_exc_flag(exc_flag);
 
-	if(strand) bam_access_OT_strand(OT);
+	// if(strand) bam_access_OT_strand(OT);
 
 	//Open output file for writing
 	FILE *output = fopen(out_file,"w");
   check(output != NULL, "Error opening file %s for write.",out_file);
-	int chk = print_header(output,snp6);
+	int chk = print_header(output,snp6,stranded);
 	check(chk >= 0,"Error trying to write header '%s'.",out_file);
 	//Open bam file and iterate through chunks until we reach the cutoff.
 	chk = -1;
@@ -416,7 +443,7 @@ int main(int argc, char *argv[]){
 	check(chk == 0,"Error trying to open sequence/index files '%s'.",hts_file);
 	int loci_count=0;
 	fprintf(stderr,"Reading locis\n");
-	locis = read_locis_from_file(loci_file,&loci_count);
+	locis = read_locis_from_file(loci_file,&loci_count,stranded);
 	fprintf(stderr,"Done reading locis\n");
 
 	check(locis!=NULL,"Error reading loci_stats from file.");
@@ -425,7 +452,7 @@ int main(int argc, char *argv[]){
      if(!is_dense){
 		  int j=0;
 		  for(j=0;j<loci_count;j++){
-		  	int ret = bam_access_get_position_base_counts(locis[j]->chr,locis[j]->pos,locis[j],is_10x,output);
+		  	int ret = bam_access_get_position_base_counts(locis[j]->chr,locis[j]->pos,locis[j],is_10x,stranded,output);
 		  	check(ret==0,"Error retrieving stats from bam file for position %s:%d",locis[j]->chr,locis[j]->pos);
 		  	free(locis[j]->chr);
 		  	if(locis[j]->base_counts) free(locis[j]->base_counts);
@@ -433,40 +460,80 @@ int main(int argc, char *argv[]){
         }
      }else{
   		 fprintf(stderr,"Multi pos start:\n");
-  		 int ret = bam_access_get_multi_position_base_counts(locis, loci_count,is_10x,output);
+  		 int ret = bam_access_get_multi_position_base_counts(locis, loci_count,is_10x,stranded,output);
   		 check(ret==0,"Error scanning through bam file for loci list with dense snps.");
      }
    }else{
     if(is_dense){
-  		fprintf(stderr,"Multi pos start:\n");
-  		int ret = bam_access_get_multi_position_base_counts(locis, loci_count,is_10x,output);
-  		check(ret==0,"Error scanning through bam file for loci list with dense snps.");
-  		int j=0;
-  		for(j=0;j<loci_count;j++){
-  			int depth = locis[j]->base_counts[0]+locis[j]->base_counts[1]+locis[j]->base_counts[2]+locis[j]->base_counts[3];
-        int check_print = print_section(output,locis[j]->chr,locis[j]->pos,locis[j]->base_counts[0],
-                    locis[j]->base_counts[1],locis[j]->base_counts[2],locis[j]->base_counts[3],depth,
-                    snp6,locis[j]->allele_A,locis[j]->allele_B);
-        check(check_print>0,"Error printing line to output file: %s: %d.",locis[j]->chr,locis[j]->pos);
-  			free(locis[j]->chr);
-  			if(locis[j]->base_counts) free(locis[j]->base_counts);
-  			free(locis[j]);
+		fprintf(stderr,"Multi pos start:\n");
+		int ret = bam_access_get_multi_position_base_counts(locis, loci_count,is_10x,stranded,output);
+		check(ret==0,"Error scanning through bam file for loci list with dense snps.");
+		int j=0;
+		if(stranded){
+			for(j=0;j<loci_count;j++){
+				int depth = locis[j]->base_counts[0]+locis[j]->base_counts[1]+locis[j]->base_counts[2]+locis[j]->base_counts[3];
+				int check_print = print_section(output,locis[j]->chr,locis[j]->pos,"+",locis[j]->base_counts[0],
+						locis[j]->base_counts[1],locis[j]->base_counts[2],locis[j]->base_counts[3],depth,
+						snp6,locis[j]->allele_A,locis[j]->allele_B,stranded);
+				check(check_print>0,"Error printing line to output file: %s: %d forward strand.",locis[j]->chr,locis[j]->pos);
+				int depth2 = locis[j]->base_counts[4]+locis[j]->base_counts[5]+locis[j]->base_counts[6]+locis[j]->base_counts[7];
+				int check_print2 = print_section(output,locis[j]->chr,locis[j]->pos,"-",locis[j]->base_counts[4],
+						locis[j]->base_counts[5],locis[j]->base_counts[6],locis[j]->base_counts[7],depth2,
+						snp6,locis[j]->allele_A,locis[j]->allele_B,stranded);
+				check(check_print2>0,"Error printing line to output file: %s: %d reverse strand.",locis[j]->chr,locis[j]->pos);
+				free(locis[j]->chr);
+				if(locis[j]->base_counts) free(locis[j]->base_counts);
+				free(locis[j]);
+			}
+		}else{
+			for(j=0;j<loci_count;j++){
+				int depth = locis[j]->base_counts[0]+locis[j]->base_counts[1]+locis[j]->base_counts[2]+locis[j]->base_counts[3];
+				int check_print = print_section(output,locis[j]->chr,locis[j]->pos,".",locis[j]->base_counts[0],
+						locis[j]->base_counts[1],locis[j]->base_counts[2],locis[j]->base_counts[3],depth,
+						snp6,locis[j]->allele_A,locis[j]->allele_B,stranded);
+				check(check_print>0,"Error printing line to output file: %s: %d.",locis[j]->chr,locis[j]->pos);
+				free(locis[j]->chr);
+				if(locis[j]->base_counts) free(locis[j]->base_counts);
+				free(locis[j]);
+			}
   		}
     }else{
-  		int j=0;
-  		for(j=0;j<loci_count;j++){
-  			int ret = bam_access_get_position_base_counts(locis[j]->chr,locis[j]->pos,locis[j],is_10x,output);
-  			check(ret==0,"Error retrieving stats from bam file for position %s:%d",locis[j]->chr,locis[j]->pos);
-        int depth = locis[j]->base_counts[0]+locis[j]->base_counts[1]+locis[j]->base_counts[2]+locis[j]->base_counts[3];
-        int check_print = print_section(output,locis[j]->chr,locis[j]->pos,locis[j]->base_counts[0],
-                    locis[j]->base_counts[1],locis[j]->base_counts[2],locis[j]->base_counts[3],depth,
-                    snp6,locis[j]->allele_A,locis[j]->allele_B);
-        check(check_print>0,"Error printing line to output file: %s: %d.",locis[j]->chr,locis[j]->pos);
+		int j=0;
+  		if(stranded){
+			for(j=0;j<loci_count;j++){
+				int ret = bam_access_get_position_base_counts(locis[j]->chr,locis[j]->pos,locis[j],is_10x,stranded,output);
+				check(ret==0,"Error retrieving stats from bam file for position %s:%d",locis[j]->chr,locis[j]->pos);
+				int depth = locis[j]->base_counts[0]+locis[j]->base_counts[1]+locis[j]->base_counts[2]+locis[j]->base_counts[3];
+				int check_print = print_section(output,locis[j]->chr,locis[j]->pos,"+",locis[j]->base_counts[0],
+						locis[j]->base_counts[1],locis[j]->base_counts[2],locis[j]->base_counts[3],depth,
+						snp6,locis[j]->allele_A,locis[j]->allele_B,stranded);
+				check(check_print>0,"Error printing line to output file: %s: %d forward strand.",locis[j]->chr,locis[j]->pos);
+				int depth2 = locis[j]->base_counts[4]+locis[j]->base_counts[5]+locis[j]->base_counts[6]+locis[j]->base_counts[7];
+				int check_print2 = print_section(output,locis[j]->chr,locis[j]->pos,"-",locis[j]->base_counts[4],
+						locis[j]->base_counts[5],locis[j]->base_counts[6],locis[j]->base_counts[7],depth2,
+						snp6,locis[j]->allele_A,locis[j]->allele_B,stranded);
+				check(check_print2>0,"Error printing line to output file: %s: %d reverse strand.",locis[j]->chr,locis[j]->pos);
 
-  			free(locis[j]->chr);
-  			if(locis[j]->base_counts) free(locis[j]->base_counts);
-  			free(locis[j]);
-  		}
+				free(locis[j]->chr);
+				if(locis[j]->base_counts) free(locis[j]->base_counts);
+				free(locis[j]);
+			}
+		}else{
+			for(j=0;j<loci_count;j++){
+				int ret = bam_access_get_position_base_counts(locis[j]->chr,locis[j]->pos,locis[j],is_10x,stranded,output);
+				check(ret==0,"Error retrieving stats from bam file for position %s:%d",locis[j]->chr,locis[j]->pos);
+				int depth = locis[j]->base_counts[0]+locis[j]->base_counts[1]+locis[j]->base_counts[2]+locis[j]->base_counts[3];
+				int check_print = print_section(output,locis[j]->chr,locis[j]->pos,".",locis[j]->base_counts[0],
+						locis[j]->base_counts[1],locis[j]->base_counts[2],locis[j]->base_counts[3],depth,
+						snp6,locis[j]->allele_A,locis[j]->allele_B,stranded);
+				check(check_print>0,"Error printing line to output file: %s: %d.",locis[j]->chr,locis[j]->pos);
+
+				free(locis[j]->chr);
+				if(locis[j]->base_counts) free(locis[j]->base_counts);
+				free(locis[j]);
+			}
+		}
+
   		free(locis);
   	 }
    }
