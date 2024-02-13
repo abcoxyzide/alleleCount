@@ -1,0 +1,2 @@
+#CHR	POS	Count_A	Count_C	Count_G	Count_T	Good_depth
+22	16165776	2	17	0	0	19
